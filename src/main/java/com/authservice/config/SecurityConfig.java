@@ -3,6 +3,7 @@ package com.authservice.config;
 import com.authservice.security.CustomUserDetailsService;
 import com.authservice.security.JwtAuthenticationEntryPoint;
 import com.authservice.security.JwtAuthenticationFilter;
+import com.authservice.security.RequestLoggingFilter;
 import com.authservice.security.oauth2.CustomOAuth2UserService;
 import com.authservice.security.oauth2.HttpCookieOAuth2AuthorizationRequestRepository;
 import com.authservice.security.oauth2.OAuth2AuthenticationFailureHandler;
@@ -43,6 +44,7 @@ public class SecurityConfig {
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RequestLoggingFilter requestLoggingFilter;
 
     @Bean
     public HttpCookieOAuth2AuthorizationRequestRepository cookieAuthorizationRequestRepository() {
@@ -52,33 +54,41 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // Configure CORS
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // Disable CSRF for REST API
                 .csrf(csrf -> csrf.disable())
+                // Configure exception handling
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(unauthorizedHandler))
+                // Use stateless session management for JWT
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Configure authorization rules
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/",
+                        // Public endpoints
+                        .requestMatchers(
+                                "/",
                                 "/error",
                                 "/favicon.ico",
-                                "/**/*.png",
-                                "/**/*.gif",
-                                "/**/*.svg",
-                                "/**/*.jpg",
-                                "/**/*.html",
-                                "/**/*.css",
-                                "/**/*.js").permitAll()
-                        .requestMatchers("/api/auth/**", "/oauth2/**").permitAll()
-                        .requestMatchers("/api/public/**", "/actuator/**").permitAll()
+                                "/api/auth/oauth/callback",        // Angular callback endpoint
+                                "/api/auth/oauth2/login/**",       // OAuth2 login endpoints
+                                "/api/auth/refresh-token",         // Token refresh endpoint
+                                "/api/auth/logout",                // Logout endpoint
+                                "/api/public/**",                  // Public API endpoints
+                                "/actuator/**",                    // Monitoring endpoints
+                                "/**/*.{png,jpg,html,css,js,svg,gif}" // Static resources
+                        ).permitAll()
+                        // All other requests need authentication
                         .anyRequest().authenticated()
                 )
+                // Configure OAuth2 login (we're using a custom flow, but keeping this for backup)
                 .oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(authEndpoint -> authEndpoint
                                 .baseUri("/oauth2/authorize")
                                 .authorizationRequestRepository(cookieAuthorizationRequestRepository())
                         )
                         .redirectionEndpoint(redirectEndpoint -> redirectEndpoint
-                                .baseUri("/oauth2/callback/*")
+                                .baseUri("/api/auth/oauth/callback/*")
                         )
                         .userInfoEndpoint(userInfo -> userInfo
                                 .userService(customOAuth2UserService)
@@ -87,7 +97,8 @@ public class SecurityConfig {
                         .failureHandler(oAuth2AuthenticationFailureHandler)
                 );
 
-        // Add our custom JWT security filter
+        // Add filters in the proper order
+        http.addFilterBefore(requestLoggingFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -114,12 +125,17 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
+        
+        // Allow Angular client
         configuration.setAllowedOrigins(Arrays.asList(allowedOrigins));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token"));
-        configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
+        configuration.setAllowedHeaders(Arrays.asList(
+        "Authorization", "Content-Type", "X-Requested-With", "Accept", 
+        "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"
+    ));
         configuration.setAllowCredentials(true);
-
+        configuration.setMaxAge(3600L);
+        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

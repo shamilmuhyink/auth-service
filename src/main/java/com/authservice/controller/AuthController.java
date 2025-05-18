@@ -172,10 +172,10 @@ public class AuthController {
                 .orElseThrow(() -> new TokenRefreshException("Invalid refresh token"));
     }
     
-    @PostMapping("/logout")
-    @Operation(summary = "Log out a user")
-    public ResponseEntity<MessageResponse> logout(@Valid @RequestBody LogoutRequest logoutRequest) {
-        refreshTokenService.deleteByToken(logoutRequest.getRefreshToken());
-        return ResponseEntity.ok(new MessageResponse("User logged out successfully"));
-    }
+//    @PostMapping("/logout")
+//    @Operation(summary = "Log out a user")
+//    public ResponseEntity<MessageResponse> logout(@Valid @RequestBody LogoutRequest logoutRequest) {
+//        refreshTokenService.deleteByToken(logoutRequest.getRefreshToken());
+//        return ResponseEntity.ok(new MessageResponse("User logged out successfully"));
+//    }
 }

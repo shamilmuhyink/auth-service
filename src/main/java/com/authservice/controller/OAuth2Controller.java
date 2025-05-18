@@ -1,56 +1,77 @@
 package com.authservice.controller;
 
+import com.authservice.dto.request.OAuth2CallbackRequest;
+import com.authservice.security.TokenPair;
+import com.authservice.service.OAuth2Service;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.oauth2.client.registration.ClientRegistration;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 
 @RestController
-@RequestMapping("/api/auth/oauth2")
+@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 @Slf4j
 public class OAuth2Controller {
 
-    private final ClientRegistrationRepository clientRegistrationRepository;
+    private final OAuth2Service oauth2Service;
 
     /**
-     * Initiates the OAuth2 login flow for the specified provider
-     * 
-     * @param provider The OAuth2 provider (e.g., "google")
-     * @param request The HTTP request
-     * @param response The HTTP response
-     * @return A redirect to the OAuth2 authorization endpoint
-     * @throws IOException If an error occurs during the redirect
+     * Initiate Google OAuth2 login
      */
-    @GetMapping("/login/{provider}")
-    public RedirectView initiateOAuth2Login(
-            @PathVariable String provider,
-            HttpServletRequest request,
-            HttpServletResponse response) throws IOException {
+    @GetMapping("/oauth2/login/google")
+    public RedirectView initiateGoogleLogin(HttpServletRequest request) {
+        log.info("Initiating Google OAuth2 login flow");
+        String authorizationUrl = oauth2Service.generateAuthorizationUrl("google", request);
+        return new RedirectView(authorizationUrl);
+    }
+
+    /**
+     * Handle the OAuth2 callback from Angular frontend
+     */
+    @PostMapping("/oauth/callback")
+    public ResponseEntity<?> handleCallbackFromClient(@RequestBody OAuth2CallbackRequest callbackRequest) {
+        log.info("Handling OAuth2 callback from Angular client");
         
-        log.info("Initiating OAuth2 login for provider: {}", provider);
-        
-        ClientRegistration clientRegistration = clientRegistrationRepository.findByRegistrationId(provider);
-        if (clientRegistration == null) {
-            log.error("OAuth2 provider not supported: {}", provider);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Unsupported OAuth2 provider");
-            return null;
+        try {
+            TokenPair tokenPair = oauth2Service.exchangeCodeForTokens(
+                    callbackRequest.getCode(),
+                    callbackRequest.getCodeVerifier(),
+                    callbackRequest.getRedirectUri(),
+                    callbackRequest.getProvider());
+            
+            return ResponseEntity.ok(tokenPair);
+        } catch (Exception e) {
+            log.error("OAuth2 token exchange failed", e);
+            return ResponseEntity.badRequest().body("Authentication failed: " + e.getMessage());
         }
-        
-        // Build the OAuth2 authorization URL
-        String authorizationRequestBaseUri = "/oauth2/authorization";
-        String authorizationRequestUri = authorizationRequestBaseUri + "/" + provider;
-        
-        log.info("Redirecting to OAuth2 authorization endpoint for provider: {}", provider);
-        return new RedirectView(authorizationRequestUri);
+    }
+    
+    /**
+     * Refresh access token using refresh token
+     */
+    @PostMapping("/refresh-token")
+    public ResponseEntity<?> refreshToken(@RequestParam String refreshToken) {
+        try {
+            TokenPair tokenPair = oauth2Service.refreshAccessToken(refreshToken);
+            return ResponseEntity.ok(tokenPair);
+        } catch (Exception e) {
+            log.error("Token refresh failed", e);
+            return ResponseEntity.badRequest().body("Token refresh failed: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Log out user and invalidate the refresh token
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@RequestParam String refreshToken) {
+        oauth2Service.revokeToken(refreshToken);
+        return ResponseEntity.ok().body("Logged out successfully");
     }
 }

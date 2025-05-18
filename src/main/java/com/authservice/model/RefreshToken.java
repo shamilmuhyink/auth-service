@@ -23,7 +23,7 @@ public class RefreshToken {
     @Column(nullable = false, unique = true)
     private String token;
     
-    @Column(nullable = false)
+    @Column(nullable = false, name = "user_id")
     private Long user;
     
     @Column(nullable = false)
